@@ -213,7 +213,7 @@ const D3 = new DeckGL({
   container: 'map', viewState: vs, controller: { dragMode: 'rotate', maxPitch: 72, inertia: 400, touchRotate: true }, layers: layers(), effects: [lighting],
   parameters: { clearColor: [0, 0, 0, 0] }, getCursor: ({ isHovering }) => isHovering ? 'pointer' : 'grab',
   onViewStateChange: ({ viewState, interactionState }) => {   // orbit with one finger / drag; pausing the idle spin while touched
-    vs = viewState; if (interactionState && (interactionState.isDragging || interactionState.isZooming || interactionState.isRotating || interactionState.isPanning)) { touched = true; idleT = 0; }
+    vs = viewState; if (interactionState && (interactionState.isDragging || interactionState.isZooming || interactionState.isRotating || interactionState.isPanning)) { touched = true; idleT = 0; flyingUntil = 0; }
     D3.setProps({ viewState: vs }); },
   onClick: info => { if (info.layer && info.layer.id === 'spikes') go(info.object[0]); },
   onHover: info => {
@@ -226,9 +226,9 @@ const D3 = new DeckGL({
     tip.innerHTML = h; tip.style.display = 'block'; tip.style.left = info.x + 14 + 'px'; tip.style.top = info.y + 14 + 'px';
   },
 });
-let touched = false, idleT = 0;
-function setView(v, ms) { touched = false; idleT = 0; vs = ms ? { ...v, transitionDuration: ms, transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }) } : { ...v }; D3.setProps({ viewState: vs });
-  if (ms) setTimeout(() => { if (vs.transitionDuration) { const { transitionDuration, transitionInterpolator, ...rest } = vs; vs = rest; } }, ms + 150); }
+let touched = false, idleT = 0, flyingUntil = 0;   // no auto-spin while a fly-to runs, or it cancels the flight
+function setView(v, ms) { touched = false; idleT = 0; flyingUntil = ms ? performance.now() + ms + 200 : 0; vs = ms ? { ...v, transitionDuration: ms, transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }) } : { ...v }; D3.setProps({ viewState: vs });
+}
 function draw() { D3.setProps({ layers: layers() }); }
 
 let t0 = performance.now(), last = t0;
@@ -236,7 +236,7 @@ function tick(now) {
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   if (!frozen) T = (now - t0) / 1000;
   idleT += dt; if (touched && idleT > 6) touched = false;                       // resume the slow orbit 6 s after the last touch
-  if (!touched && !vs.transitionDuration && !frozen) { vs = { ...vs, bearing: (vs.bearing || 0) + dt * 2.2 }; D3.setProps({ viewState: vs }); }
+  if (!touched && now > flyingUntil && !frozen) { const { transitionDuration, transitionInterpolator, ...rest } = vs; vs = { ...rest, bearing: (vs.bearing || 0) + dt * 2.2 }; D3.setProps({ viewState: vs }); }
   draw(); requestAnimationFrame(tick);
 }
 panel(); INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); requestAnimationFrame(tick);
