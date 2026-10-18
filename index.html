@@ -240,6 +240,7 @@ function tick(now) {
   draw(); requestAnimationFrame(tick);
 }
 panel(); INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); requestAnimationFrame(tick);
+if (q.get('city') && CITY[q.get('city')]) setTimeout(() => go(q.get('city')), 600);   // deep link, e.g. ?city=Mumbai
 addEventListener('resize', () => { if (view === 'India') { INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); } });
 window.__app = { go, cityView, setT: t => { T = t; frozen = true; draw(); }, view: () => view, setGrow: k => { growK = k; draw(); }, setView, deck: D3 };
 </script>
