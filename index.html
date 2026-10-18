@@ -246,7 +246,6 @@ function stepFlight(now) {
   vs = { longitude: p.longitude, latitude: p.latitude, zoom: p.zoom, pitch: p.pitch, bearing: p.bearing };
   D3.setProps({ viewState: vs }); if (k >= 1) flight = null; return true;
 }
-}
 function draw() { D3.setProps({ layers: layers() }); }
 
 let t0 = performance.now(), last = t0;
@@ -262,7 +261,7 @@ if (CLEAN) document.body.classList.add('clean');
 if (q.get('city') && CITY[q.get('city')]) setTimeout(() => go(q.get('city')), +(q.get('at') || 600));   // deep link, e.g. ?city=Mumbai
 let goingTo = null;
 addEventListener('resize', () => { if (view === 'India' && !goingTo && performance.now() > flyingUntil) { INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); } });
-window.__app = { go, cityView, setT: t => { T = t; frozen = true; draw(); }, view: () => view, setGrow: k => { growK = k; draw(); }, setView, deck: D3 };
+window.__app = { go, cityView, stepFlight, flight: () => flight, setT: t => { T = t; frozen = true; draw(); }, view: () => view, setGrow: k => { growK = k; draw(); }, setView, deck: D3 };
 </script>
 </body>
 </html>
