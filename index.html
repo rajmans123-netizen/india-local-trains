@@ -139,7 +139,7 @@ function layers() {
     L.push(new ScatterplotLayer({ id: 'stations', data: st, getPosition: d => [d.lon, d.lat], radiusUnits: 'pixels', getRadius: d => big.includes(d.name) ? 5 : 3, filled: true, stroked: true,
       getFillColor: [255, 255, 255], getLineColor: [60, 50, 50], lineWidthMinPixels: 1.4, pickable: true }));
     L.push(new TextLayer({ id: 'st-labels', data: st.filter(d => big.includes(d.name)), getPosition: d => [d.lon, d.lat], getText: d => d.name, getSize: 13, getColor: [26, 23, 23],
-      fontFamily: 'Inter', fontWeight: 800, getPixelOffset: d => d.name === 'Churchgate' ? [-10, 6] : [10, 0], getTextAnchor: d => d.name === 'Churchgate' ? 'end' : 'start', getAlignmentBaseline: 'center', background: true, getBackgroundColor: [255, 255, 255, 220], backgroundPadding: [5, 3],
+      fontFamily: 'Inter', fontWeight: 800, getPixelOffset: d => d.name === 'Churchgate' ? [6, 16] : [10, 0], getTextAnchor: 'start', getAlignmentBaseline: 'center', background: true, getBackgroundColor: [255, 255, 255, 220], backgroundPadding: [5, 3],
       parameters: { depthTest: false } }));
   }
   return L;
