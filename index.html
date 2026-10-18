@@ -130,10 +130,10 @@ function layers() {
     L.push(new ScatterplotLayer({ id: 'rings', data: Object.entries(CITY), getPosition: d => [d[1].lon, d[1].lat, 9500], radiusUnits: 'pixels',
       getRadius: d => 8 + 26 * pulse * (0.4 + Math.sqrt(d[1].lakh / 67.7)), stroked: true, filled: false, getLineColor: [229, 56, 59, Math.round(170 * (1 - pulse))], lineWidthMinPixels: 2,
       updateTriggers: { getRadius: tk, getLineColor: tk } }));
-    L.push(needles('spikes', Object.entries(CITY), d => [d[1].lon, d[1].lat, 9000], () => innerWidth < 900 ? 70000 : 60000, d => Math.max(30000, d[1].lakh * 26000 * grow()),
-      d => d[0] === 'Mumbai' ? [229, 56, 59] : [240, 120, 112], { pickable: true, updateTriggers: { getScale: growK } }));
+    L.push(needles('spikes', Object.entries(CITY), d => [d[1].lon, d[1].lat, 9000], () => innerWidth < 900 ? 70000 : 60000, d => Math.max(30000 * sink(), d[1].lakh * 26000 * grow()),
+      d => d[0] === 'Mumbai' ? [229, 56, 59] : [240, 120, 112], { pickable: true, updateTriggers: { getScale: [growK, tk] } }));
     L.push(new TextLayer({ id: 'labels', data: Object.entries(CITY), getPosition: d => [d[1].lon, d[1].lat, 9000 + d[1].lakh * 26000 * grow() + 40000],
-      getText: d => `${d[0]}  ${fmt(d[1].lakh)}`, getSize: 15, getColor: [26, 23, 23], fontFamily: 'Inter', fontWeight: 800, getTextAnchor: d => d[0] === 'Mumbai' ? 'start' : 'middle', getPixelOffset: d => d[0] === 'Mumbai' ? [-14, 0] : [0, 0], getAlignmentBaseline: 'bottom',
+      getText: d => `${d[0]}  ${fmt(d[1].lakh)}`, opacity: sink(), getSize: 15, getColor: [26, 23, 23], fontFamily: 'Inter', fontWeight: 800, getTextAnchor: d => d[0] === 'Mumbai' ? 'start' : 'middle', getPixelOffset: d => d[0] === 'Mumbai' ? [-14, 0] : [0, 0], getAlignmentBaseline: 'bottom',
       background: true, getBackgroundColor: [255, 255, 255, 235], backgroundPadding: [8, 5], parameters: { depthTest: false }, updateTriggers: { getPosition: tk } }));
   } else {
     const rs = (D.tracks && D.tracks[view]) || D.routes[view] || [];
@@ -163,7 +163,8 @@ function layers() {
 const MAJOR = { Mumbai: ['Churchgate', 'CSMT', 'Dadar', 'Bandra', 'Andheri', 'Borivali', 'Virar', 'Kurla', 'Thane', 'Kalyan Junction', 'Panvel', 'Vashi', 'Kasara', 'Karjat', 'Uran City', 'Vasai Road'],
                 Chennai: ['Chennai Beach', 'Chennai Egmore', 'Chennai Central', 'Tambaram', 'Velachery', 'Guindy', 'Chengalpattu Junction', 'Tiruvallur', 'Avadi', 'Gummidipoondi', 'Arakkonam Junction'],
                 Kolkata: ['Howrah', 'Howrah Junction', 'Sealdah', 'Dum Dum Junction', 'Naihati Junction', 'Bandel Junction', 'Barasat Junction', 'Ballygunge Junction', 'Sonarpur Junction', 'Barrackpore', 'Kalyani', 'Bardhaman', 'Diamond Harbour', 'Canning', 'Santragachi Junction', 'Kharagpur'] };
-let growK = 1; const grow = () => growK * (innerWidth < 900 ? 0.85 : 1);
+let growK = 1, sinkAt = 0; const sink = () => sinkAt ? Math.max(0, 1 - (performance.now() - sinkAt) / 700) : 1;   // spikes sink during a dive into a city
+const grow = () => growK * sink() * (innerWidth < 900 ? 0.85 : 1);
 const fmt = l => l >= 1 ? `${l.toFixed(1)} L` : `${Math.round(l * 100)}K`;
 
 // ---------- panel
@@ -201,8 +202,8 @@ function go(c) {
   if (c !== 'India' && !CITY[c].view) { tipCard(c); return; }
   // fly first, swap the layers in when the camera is most of the way there (so the city doesn't pop in at India zoom)
   const target = c === 'India' ? (INDIA_VIEW = indiaFit()) : (() => { const prev = view; view = c; panel(); const v = cityView(c); view = prev; return v; })();
-  setView(target, 1600); clearTimeout(go.t);
-  go.t = setTimeout(() => { view = c; back.style.display = c === 'India' ? 'none' : 'block'; panel(); draw(); }, c === 'India' ? 0 : 1050);
+  goingTo = c; sinkAt = c === 'India' ? 0 : performance.now(); setView(target, 1600); clearTimeout(go.t);
+  go.t = setTimeout(() => { view = c; goingTo = null; back.style.display = c === 'India' ? 'none' : 'block'; panel(); draw(); }, c === 'India' ? 0 : 1050);
 }
 function cityView(c) { const v = fitView(CITY[c].bounds, CITY[c].view); v.zoom += 0.15; return v; }
 function tipCard(c) {   // cities without track data in OpenStreetMap: show the number only
@@ -246,7 +247,8 @@ function tick(now) {
 panel(); INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); requestAnimationFrame(tick);
 if (CLEAN) document.body.classList.add('clean');
 if (q.get('city') && CITY[q.get('city')]) setTimeout(() => go(q.get('city')), +(q.get('at') || 600));   // deep link, e.g. ?city=Mumbai
-addEventListener('resize', () => { if (view === 'India') { INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); } });
+let goingTo = null;
+addEventListener('resize', () => { if (view === 'India' && !goingTo && performance.now() > flyingUntil) { INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); } });
 window.__app = { go, cityView, setT: t => { T = t; frozen = true; draw(); }, view: () => view, setGrow: k => { growK = k; draw(); }, setView, deck: D3 };
 </script>
 </body>
