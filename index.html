@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>India's Local Trains</title>
+<meta name="description" content="Every suburban train network in India by passengers a day, with Mumbai's local lines and trains on a live map. Built with Claude.">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&family=Montserrat:wght@800;900&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/deck.gl@8.9.35/dist.min.js"></script>
+<script src="data.js"></script>
+<style>
+  :root { --bg: #FBF7F5; --bg2: #F4ECE8; --ink: #1A1717; --muted: #7A706D; --line: #EADFDA; --card: #FFFFFF; --red: #E5383B; --gold: #C9920E; --shadow: 0 14px 40px rgba(110,40,30,.12); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+  #map { position: fixed; inset: 0; background: radial-gradient(120% 90% at 50% 40%, var(--bg) 0%, var(--bg2) 100%); }
+  .ui { position: fixed; z-index: 2; }
+  #title { left: 20px; top: calc(env(safe-area-inset-top) + 16px); pointer-events: none; }
+  #title h1 { margin: 0; font: 900 clamp(22px, 5.4vw, 40px)/1 Montserrat, sans-serif; letter-spacing: -.01em; }
+  #title h1 span { color: var(--red); }
+  #title p { margin: 6px 0 0; color: var(--muted); font-weight: 600; font-size: 13px; }
+  #back { left: 20px; top: calc(env(safe-area-inset-top) + 90px); display: none; border: 0; background: var(--card); box-shadow: var(--shadow); border-radius: 999px; padding: 10px 16px; font: 700 14px Inter; color: var(--ink); cursor: pointer; }
+  #panel { right: 16px; bottom: calc(env(safe-area-inset-bottom) + 16px); width: min(380px, calc(100vw - 32px)); background: var(--card); border-radius: 22px; box-shadow: var(--shadow); padding: 18px 18px 14px; }
+  #panel h2 { margin: 0 0 2px; font: 900 22px Montserrat, sans-serif; }
+  #panel .sub { color: var(--muted); font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+  .row { display: grid; grid-template-columns: 92px 1fr 64px; align-items: center; gap: 10px; margin: 8px 0; cursor: pointer; }
+  .row .nm { font-weight: 800; font-size: 14px; }
+  .row .bar { height: 12px; border-radius: 6px; background: var(--line); overflow: hidden; }
+  .row .bar i { display: block; height: 100%; border-radius: 6px; }
+  .row .v { text-align: right; font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .live { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; font-weight: 700; font-size: 13px; color: var(--muted); }
+  .live b { font: 900 22px Montserrat, sans-serif; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .fact { margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: #FDEDEC; color: #8F1F22; font-weight: 700; font-size: 13.5px; line-height: 1.35; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+  .legend i { width: 18px; height: 5px; border-radius: 3px; display: inline-block; }
+  #src { margin-top: 10px; font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+  #src a { color: var(--muted); }
+  #tip { position: fixed; z-index: 3; pointer-events: none; background: var(--card); box-shadow: var(--shadow); border-radius: 12px; padding: 8px 10px; font-size: 13px; font-weight: 700; display: none; white-space: nowrap; }
+  #tip small { display: block; color: var(--muted); font-weight: 600; }
+  @media (max-width: 640px) { #panel.city .fact, #panel.city #src { display: none; } #src { font-size: 9.5px; } .fact { font-size: 12.5px; padding: 8px 10px; } #panel { left: 12px; right: 12px; width: auto; bottom: calc(env(safe-area-inset-bottom) + 12px); padding: 14px 14px 10px; } .row { grid-template-columns: 96px 1fr 56px; margin: 6px 0; } #panel h2 { font-size: 19px; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="title" class="ui"><h1>INDIA'S <span>LOCAL TRAINS</span></h1><p>Suburban rail · passengers a day · 2024-25</p></div>
+<button id="back" class="ui">← India</button>
+<div id="panel" class="ui"></div>
+<div id="tip"></div>
+
+<script>
+const D = window.LOCALS, q = new URLSearchParams(location.search);
+const CITY = {   // official per-day numbers (lakh), Indian Railways Annual Statistical Statements 2024-25
+  Mumbai:    { lakh: 67.7, lon: 72.88, lat: 19.08, bounds: [[72.80, 18.92], [73.17, 19.47]], view: { pitch: 45, bearing: -10 } },
+  Kolkata:   { lakh: 30.4, lon: 88.36, lat: 22.57 },
+  Chennai:   { lakh: 8.5,  lon: 80.27, lat: 13.08, bounds: [[80.08, 12.85], [80.30, 13.12]], view: { pitch: 45, bearing: -10 } },
+  Hyderabad: { lakh: 0.37, lon: 78.48, lat: 17.39 },
+};
+const ZONE = { CR: 38.92, WR: 28.76 };
+const COL = { Western: '#D4A017', Central: '#E5383B', Harbour: '#2F5DA8', 'Trans-Harbour': '#6A3FA0', 'Nerul–Uran': '#E08A1E', 'Vasai–Diva': '#B82880', MRTS: '#6A3FA0', South: '#E5383B' };
+const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function fitView(bounds, extra) {   // fit bounds into the free area: above the panel (phone) or left of it (desktop)
+  const W = innerWidth, H = innerHeight, mob = W < 640, ph = (document.getElementById('panel') || {}).offsetHeight || 320;
+  const box = mob ? { x0: 16, x1: W - 16, y0: 110, y1: H - ph - 28 } : { x0: 40, x1: W - 430, y0: 100, y1: H - 40 };
+  const bw = Math.max(120, box.x1 - box.x0), bh = Math.max(120, box.y1 - box.y0);
+  const f = new deck.WebMercatorViewport({ width: bw, height: bh }).fitBounds(bounds);
+  const vp = new deck.WebMercatorViewport({ width: W, height: H, longitude: f.longitude, latitude: f.latitude, zoom: f.zoom });
+  const [lon, lat] = vp.unproject([W / 2 - ((box.x0 + box.x1) / 2 - W / 2), H / 2 - ((box.y0 + box.y1) / 2 - H / 2)]);
+  return { longitude: lon, latitude: lat, zoom: f.zoom, ...extra };
+}
+let INDIA_VIEW = { longitude: 81.2, latitude: 22.2, zoom: 4.1, pitch: 40, bearing: 0 };
+const indiaFit = () => fitView([[68.5, 7.5], [97.0, 34.5]], { pitch: innerWidth < 640 ? 20 : 34, bearing: 0 });
+let view = 'India', vs = { ...INDIA_VIEW }, T = 0, frozen = q.has('freeze');
+
+// ---------- trains: dots running along each route; density follows ridership (illustrative)
+function cum(path) { const c = [0]; for (let i = 1; i < path.length; i++) { const [a, b] = [path[i - 1], path[i]], k = Math.cos(b[1] * Math.PI / 180);
+  c.push(c[i - 1] + Math.hypot((b[0] - a[0]) * 111.32 * k, (b[1] - a[1]) * 111.32)); } return c; }
+const SPEED = 2.4;   // km of track per second of animation
+// one shared cycle P: each train starts at its offset in [0, P) and runs its line once; a copy shifted by P covers the wrap,
+// so with currentTime = P + (T mod P) every train is always somewhere on its line
+const allRoutes = Object.values(D.routes).flat(), P = Math.ceil(Math.max(...allRoutes.map(r => cum(r.path).pop() / SPEED), 10)) + 1;
+function buildTrips(city) {
+  const rs = D.routes[city] || [], trips = [];
+  const share = { Central: .56, Harbour: .24, 'Trans-Harbour': .1, 'Nerul–Uran': .03, 'Vasai–Diva': .07 };   // illustrative split of CR's riders across its lines
+  const byLine = {}; rs.forEach(r => (byLine[r.line] = byLine[r.line] || []).push(r));
+  for (const [line, list] of Object.entries(byLine)) {
+    const lakh = city === 'Mumbai' ? (line === 'Western' ? ZONE.WR : ZONE.CR * (share[line] || .05)) : CITY[city].lakh / Object.keys(byLine).length;
+    const totalKm = list.reduce((s, r) => s + r.km, 0);
+    for (const r of list) {
+      const c = cum(r.path), L = c[c.length - 1], dur = L / SPEED, visible = lakh * 1.6 * r.km / totalKm, n = Math.max(1, Math.round(visible * P / dur / 2));
+      for (const dir of [1, -1]) {
+        const p = dir > 0 ? r.path : [...r.path].reverse(), cc = dir > 0 ? c : c.map(x => L - x).reverse();
+        for (let k = 0; k < n; k++) {
+          const off = ((k + (dir < 0 ? .5 : 0)) / n) * P;
+          for (const sh of [0, P]) trips.push({ line, color: hex(COL[line] || r.colour), path: p, ts: cc.map(x => x / SPEED + off + sh) });
+        }
+      }
+    }
+  }
+  return trips;
+}
+const TRIPS = { Mumbai: buildTrips('Mumbai'), Chennai: buildTrips('Chennai') };
+
+// ---------- layers
+const { DeckGL, PolygonLayer, PathLayer, ScatterplotLayer, TextLayer, ColumnLayer, TripsLayer, FlyToInterpolator } = deck;
+const indiaPolys = D.india.geometry.coordinates.map(p => p[0]);
+function layers() {
+  const inCity = view !== 'India', tk = T;
+  const L = inCity ? [] : [
+    new PolygonLayer({ id: 'india', data: indiaPolys, getPolygon: d => d, extruded: true, getElevation: inCity ? 0 : 9000, filled: true, stroked: true,
+      getFillColor: [240, 214, 205], getLineColor: [205, 165, 155], lineWidthMinPixels: 1.2, material: { ambient: .75, diffuse: .35, shininess: 4, specularColor: [30, 20, 20] } }),
+    new PathLayer({ id: 'states', data: D.states, getPath: d => d, getColor: [205, 178, 170, inCity ? 60 : 150], widthMinPixels: .6, getWidth: 1 }),
+  ];
+  if (!inCity) {
+    const pulse = (tk % 1.6) / 1.6;
+    L.push(new ScatterplotLayer({ id: 'rings', data: Object.entries(CITY), getPosition: d => [d[1].lon, d[1].lat, 9500], radiusUnits: 'pixels',
+      getRadius: d => 8 + 26 * pulse * (0.4 + Math.sqrt(d[1].lakh / 67.7)), stroked: true, filled: false, getLineColor: [229, 56, 59, Math.round(170 * (1 - pulse))], lineWidthMinPixels: 2,
+      updateTriggers: { getRadius: tk, getLineColor: tk } }));
+    L.push(new ColumnLayer({ id: 'spikes', data: Object.entries(CITY), diskResolution: 24, radius: 26000, extruded: true, pickable: true,
+      getPosition: d => [d[1].lon, d[1].lat], getElevation: d => 9000 + d[1].lakh * 26000 * grow(), getFillColor: d => d[0] === 'Mumbai' ? [229, 56, 59] : [240, 120, 112],
+      material: { ambient: .55, diffuse: .6, shininess: 40, specularColor: [70, 40, 40] }, updateTriggers: { getElevation: tk } }));
+    L.push(new TextLayer({ id: 'labels', data: Object.entries(CITY), getPosition: d => [d[1].lon, d[1].lat, 9000 + d[1].lakh * 26000 * grow() + 40000],
+      getText: d => `${d[0]}  ${fmt(d[1].lakh)}`, getSize: 15, getColor: [26, 23, 23], fontFamily: 'Inter', fontWeight: 800, getTextAnchor: d => d[0] === 'Mumbai' ? 'start' : 'middle', getPixelOffset: d => d[0] === 'Mumbai' ? [-14, 0] : [0, 0], getAlignmentBaseline: 'bottom',
+      background: true, getBackgroundColor: [255, 255, 255, 235], backgroundPadding: [8, 5], parameters: { depthTest: false }, updateTriggers: { getPosition: tk } }));
+  } else {
+    const rs = (D.tracks && D.tracks[view]) || D.routes[view] || [];
+    L.push(new PathLayer({ id: 'track-glow', data: rs, getPath: d => d.path, getColor: d => [...hex(COL[d.line] || d.colour || '#7A706D'), 45], getWidth: 10, widthUnits: 'pixels', capRounded: true, jointRounded: true }));
+    L.push(new PathLayer({ id: 'track', data: rs, getPath: d => d.path, getColor: d => hex(COL[d.line] || d.colour || '#7A706D'), getWidth: 3, widthUnits: 'pixels', capRounded: true, jointRounded: true, pickable: true }));
+    const trips = TRIPS[view] || [];
+    L.push(new TripsLayer({ id: 'trains', data: trips, getPath: d => d.path, getTimestamps: d => d.ts, getColor: d => d.color, widthMinPixels: 5, capRounded: true, jointRounded: true,
+      trailLength: 2.6, currentTime: P + (tk % P), fadeTrail: true, _pathType: 'open', opacity: .9 }));
+    const now = P + (tk % P), heads = [];
+    for (const d of trips) { const ts = d.ts; if (now < ts[0] || now > ts[ts.length - 1]) continue;
+      let lo = 0, hi = ts.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (ts[m] <= now) lo = m; else hi = m; }
+      const f = (now - ts[lo]) / ((ts[hi] - ts[lo]) || 1), a = d.path[lo], b = d.path[hi];
+      heads.push({ p: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], c: d.color }); }
+    L.push(new ScatterplotLayer({ id: 'heads', data: heads, getPosition: d => d.p, radiusUnits: 'pixels', getRadius: 5.2, filled: true, stroked: true,
+      getFillColor: d => d.c, getLineColor: [255, 255, 255], lineWidthMinPixels: 1.6 }));
+    const st = D.stations[view] || [], big = MAJOR[view] || [];
+    L.push(new ScatterplotLayer({ id: 'stations', data: st, getPosition: d => [d.lon, d.lat], radiusUnits: 'pixels', getRadius: d => big.includes(d.name) ? 5 : 3, filled: true, stroked: true,
+      getFillColor: [255, 255, 255], getLineColor: [60, 50, 50], lineWidthMinPixels: 1.4, pickable: true }));
+    L.push(new TextLayer({ id: 'st-labels', data: st.filter(d => big.includes(d.name)), getPosition: d => [d.lon, d.lat], getText: d => d.name, getSize: 13, getColor: [26, 23, 23],
+      fontFamily: 'Inter', fontWeight: 800, getPixelOffset: d => d.name === 'Churchgate' ? [-10, 6] : [10, 0], getTextAnchor: d => d.name === 'Churchgate' ? 'end' : 'start', getAlignmentBaseline: 'center', background: true, getBackgroundColor: [255, 255, 255, 220], backgroundPadding: [5, 3],
+      parameters: { depthTest: false } }));
+  }
+  return L;
+}
+const MAJOR = { Mumbai: ['Churchgate', 'CSMT', 'Dadar', 'Bandra', 'Andheri', 'Borivali', 'Virar', 'Kurla', 'Thane', 'Kalyan Junction', 'Panvel', 'Vashi', 'Kasara', 'Karjat', 'Uran City', 'Vasai Road'],
+                Chennai: ['Chennai Beach', 'Chennai Egmore', 'Tambaram', 'Velachery', 'Saidapet', 'Guindy', 'Chengalpattu'] };
+let growK = 1; const grow = () => growK * (innerWidth < 640 ? 0.6 : 1);
+const fmt = l => l >= 1 ? `${l.toFixed(1)} L` : `${Math.round(l * 100)}K`;
+
+// ---------- panel
+function panel() {
+  const P = document.getElementById('panel'); P.classList.toggle('city', view !== 'India');
+  if (view === 'India') {
+    const max = 67.7;
+    P.innerHTML = `<h2>Passengers a day</h2><div class="sub">Suburban rail, by city · tap a city</div>` +
+      Object.entries(CITY).map(([n, c]) => `<div class="row" data-c="${n}"><div class="nm">${n}</div><div class="bar"><i style="width:${Math.max(1.5, c.lakh / max * 100)}%;background:${n === 'Mumbai' ? '#E5383B' : '#F0786F'}"></i></div><div class="v">${fmt(c.lakh)}</div></div>`).join('') +
+      `<div class="fact">Mumbai alone carries <b>1.7×</b> every other suburban network in India combined.</div>` + live() + src();
+    P.querySelectorAll('.row').forEach(r => r.onclick = () => go(r.dataset.c));
+  } else if (view === 'Mumbai') {
+    const lines = ['Western', 'Central', 'Harbour', 'Trans-Harbour', 'Vasai–Diva', 'Nerul–Uran'];
+    P.innerHTML = `<h2>Mumbai · 67.7 lakh a day</h2><div class="sub">${(D.stations.Mumbai || []).length} stations · ${Math.round((D.routes.Mumbai || []).reduce((s, r) => s + r.km, 0))} km of routes drawn</div>` +
+      `<div class="row"><div class="nm">Central Rly</div><div class="bar"><i style="width:${38.92 / 38.92 * 100}%;background:#E5383B"></i></div><div class="v">38.9 L</div></div>` +
+      `<div class="row"><div class="nm">Western Rly</div><div class="bar"><i style="width:${28.76 / 38.92 * 100}%;background:#D4A017"></i></div><div class="v">28.8 L</div></div>` +
+      `<div class="row"><div class="nm">All Kolkata</div><div class="bar"><i style="width:${30.4 / 38.92 * 100}%;background:#C9BEB9"></i></div><div class="v">30.4 L</div></div>` +
+      `<div class="fact">Central Railway's Mumbai locals alone carry more people than Kolkata's entire suburban network.</div>` +
+      live() + `<div class="legend">${lines.map(l => `<span><i style="background:${COL[l]}"></i>${l}</span>`).join('')}</div>` + src(true);
+  } else {
+    P.innerHTML = `<h2>${view} · ${fmt(CITY[view].lakh)} a day</h2><div class="sub">${(D.stations[view] || []).length} stations mapped · lines with route data in OpenStreetMap</div>` +
+      `<div class="legend">${[...new Set((D.routes[view] || []).map(r => r.line))].map(l => `<span><i style="background:${COL[l] || '#7A706D'}"></i>${l}</span>`).join('')}</div>` + src(true);
+  }
+}
+// people boarding a Mumbai local since the page opened, at the 2024-25 daily average (67.7 lakh ÷ 86,400 s ≈ 78 a second)
+const OPEN = performance.now();
+const live = () => `<div class="live"><b id="boarded">0</b> people boarded a Mumbai local since you opened this</div>`;
+setInterval(() => { const el = document.getElementById('boarded'); if (el) el.textContent = Math.round((performance.now() - OPEN) / 1000 * 6770000 / 86400).toLocaleString('en-IN'); }, 250);
+const src = trains => `<div id="src">Passengers: Indian Railways Annual Statistical Statements 2024-25 (suburban passengers originating ÷ 365).${trains ? ' Moving dots are illustrative; their density follows ridership.' : ''} Tracks & stations © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (ODbL). Built with Claude · Raj Tries 7/30.</div>`;
+
+// ---------- navigation
+const back = document.getElementById('back');
+function go(c) {
+  if (c !== 'India' && !CITY[c].view) { tipCard(c); return; }
+  view = c; back.style.display = c === 'India' ? 'none' : 'block';
+  panel(); if (c === 'India') INDIA_VIEW = indiaFit(); setView(c === 'India' ? INDIA_VIEW : cityView(c), 1600); draw();
+}
+function cityView(c) { const v = fitView(CITY[c].bounds, CITY[c].view); v.zoom += 0.15; return v; }
+function tipCard(c) {   // cities without track data in OpenStreetMap: show the number only
+  const P = document.getElementById('panel'); const f = P.querySelector('.fact');
+  if (f) f.innerHTML = `<b>${c}</b>: ${fmt(CITY[c].lakh)} passengers a day. Its track map isn't in OpenStreetMap's route data yet, so only Mumbai and Chennai open up.`;
+}
+back.onclick = () => go('India');
+addEventListener('keydown', e => { if (e.key === 'Escape') go('India'); });
+
+const tip = document.getElementById('tip');
+const D3 = new DeckGL({
+  container: 'map', initialViewState: vs, controller: { dragRotate: true, touchRotate: true, inertia: true }, layers: layers(),
+  parameters: { clearColor: [0, 0, 0, 0] }, getCursor: ({ isHovering }) => isHovering ? 'pointer' : 'grab',
+  onViewStateChange: ({ viewState }) => { vs = viewState; },
+  onClick: info => { if (info.layer && info.layer.id === 'spikes') go(info.object[0]); },
+  onHover: info => {
+    const o = info.object; if (!o) { tip.style.display = 'none'; return; }
+    let h = '';
+    if (info.layer.id === 'spikes') h = `${o[0]}<small>${fmt(o[1].lakh)} passengers a day</small>`;
+    else if (info.layer.id === 'stations') h = `${o.name}<small>${o.lines.join(' · ')}</small>`;
+    else if (info.layer.id === 'track') h = `${o.line} line<small>${o.name}</small>`;
+    tip.innerHTML = h; tip.style.display = 'block'; tip.style.left = info.x + 14 + 'px'; tip.style.top = info.y + 14 + 'px';
+  },
+});
+function setView(v, ms) { vs = { ...v, transitionDuration: ms, transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }) }; D3.setProps({ initialViewState: vs }); }
+function draw() { D3.setProps({ layers: layers() }); }
+
+let t0 = performance.now();
+function tick(now) {
+  if (!frozen) T = (now - t0) / 1000;
+  draw(); requestAnimationFrame(tick);
+}
+panel(); INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); requestAnimationFrame(tick);
+addEventListener('resize', () => { if (view === 'India') { INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); } });
+window.__app = { go, cityView, setT: t => { T = t; frozen = true; draw(); }, view: () => view, setGrow: k => { growK = k; draw(); }, setView, deck: D3 };
+</script>
+</body>
+</html>
