@@ -218,7 +218,8 @@ const D3 = new DeckGL({
   container: 'map', viewState: vs, controller: { dragMode: 'rotate', maxPitch: 72, inertia: 400, touchRotate: true }, layers: layers(), effects: [lighting],
   parameters: { clearColor: [0, 0, 0, 0] }, getCursor: ({ isHovering }) => isHovering ? 'pointer' : 'grab',
   onViewStateChange: ({ viewState, interactionState }) => {   // orbit with one finger / drag; pausing the idle spin while touched
-    vs = viewState; if (interactionState && (interactionState.isDragging || interactionState.isZooming || interactionState.isRotating || interactionState.isPanning)) { touched = true; idleT = 0; flyingUntil = 0; }
+    if (flight && !(interactionState && (interactionState.isDragging || interactionState.isZooming))) return;   // ignore deck's own updates mid-flight
+    flight = null; vs = viewState; if (interactionState && (interactionState.isDragging || interactionState.isZooming || interactionState.isRotating || interactionState.isPanning)) { touched = true; idleT = 0; flyingUntil = 0; }
     D3.setProps({ viewState: vs }); },
   onClick: info => { if (info.layer && info.layer.id === 'spikes') go(info.object[0]); },
   onHover: info => {
@@ -232,7 +233,19 @@ const D3 = new DeckGL({
   },
 });
 let touched = false, idleT = 0, flyingUntil = 0;   // no auto-spin while a fly-to runs, or it cancels the flight
-function setView(v, ms) { touched = false; idleT = 0; flyingUntil = ms ? performance.now() + ms + 200 : 0; vs = ms ? { ...v, transitionDuration: ms, transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }) } : { ...v }; D3.setProps({ viewState: vs });
+// camera flights are driven frame by frame here (not by deck transitions), so a resize or the browser bar can't cancel them
+var flight = null; const FLY = new deck.FlyToInterpolator({ speed: 1.4 });
+function setView(v, ms) { touched = false; idleT = 0; flyingUntil = ms ? performance.now() + ms + 100 : 0;
+  if (ms) { const { transitionDuration, transitionInterpolator, ...from } = vs; flight = { from: { width: innerWidth, height: innerHeight, ...from }, to: { width: innerWidth, height: innerHeight, ...v }, t0: performance.now(), ms };
+    flight.from.bearing = ((((flight.from.bearing || 0) - (v.bearing || 0)) % 360 + 540) % 360) - 180 + (v.bearing || 0); }   // take the short way round
+  else { flight = null; vs = { ...v }; D3.setProps({ viewState: vs }); } }
+function stepFlight(now) {
+  if (!flight) return false;
+  const k = Math.min(1, (now - flight.t0) / flight.ms), e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+  const p = FLY.interpolateProps(flight.from, flight.to, e);
+  vs = { longitude: p.longitude, latitude: p.latitude, zoom: p.zoom, pitch: p.pitch, bearing: p.bearing };
+  D3.setProps({ viewState: vs }); if (k >= 1) flight = null; return true;
+}
 }
 function draw() { D3.setProps({ layers: layers() }); }
 
@@ -241,7 +254,7 @@ function tick(now) {
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   if (!frozen) T = (now - t0) / 1000;
   idleT += dt; if (touched && idleT > 6) touched = false;                       // resume the slow orbit 6 s after the last touch
-  if (!touched && now > flyingUntil && !frozen) { const { transitionDuration, transitionInterpolator, ...rest } = vs; vs = { ...rest, bearing: (vs.bearing || 0) + dt * 2.2 }; D3.setProps({ viewState: vs }); }
+  if (stepFlight(now)) {} else if (!touched && now > flyingUntil && !frozen) { const { transitionDuration, transitionInterpolator, ...rest } = vs; vs = { ...rest, bearing: (vs.bearing || 0) + dt * 2.2 }; D3.setProps({ viewState: vs }); }
   draw(); requestAnimationFrame(tick);
 }
 panel(); INDIA_VIEW = indiaFit(); setView(INDIA_VIEW, 0); requestAnimationFrame(tick);
